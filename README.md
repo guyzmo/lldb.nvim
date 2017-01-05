@@ -101,9 +101,53 @@ Try clang instead of gcc (fingers crossed). See [clang comparison](http://clang.
 
 #### How do I attach to a running process?
 
-To be able to attach, the "attacher" needs to have special permissions. The
-easiest method is to run a debug server as 'sudo' and connect to it.
-See the question below.
+To be able to attach, the lldb process needs to have a special capability called
+[*process capture*]. By default, this is limited only to children processes of the
+process doing the capture, which is the default way for `lldb` to work.
+But, there are three strategies to enable "capturing" of a non-child process 
+by `lldb`.
+
+The first one is to disable `pcap` scoping by setting the following value to 0:
+
+```
+echo 0 > /proc/sys/kernel/yama/ptrace_scope
+```
+
+But don't forget to set it back to `1` when you're done to keep your system safe.
+
+The second one is to give your `lldb` executable the rights to capture non-children
+processes by giving it a special capability (you'll need `libcap2-bin` installed):
+
+```
+sudo setcap cap_sys_ptrace=eip /usr/bin/lldb
+```
+
+This cannot be reverted, so you can use user permissions to restrict the risk of
+getting lldb as a bounce to get your system hijacked.
+
+The third one is to run `lldb` as root. Because that would mean running your entire
+neovim session as root, this might not be a good idea. So then, you'd better run a
+debug server as root, and see below how to do so. 
+
+N.B.: the above tips apply to the `/usr/bin/lldb-server` executable as well, if you
+want to avoid running your debugger as root.
+
+[*process capture*]:http://askubuntu.com/a/153970/583565
+
+#### How to debug an interactive commandline process?
+
+You'll need to make it possible to capture a remote process with `lldb`, see the above
+answer for more details. And then, once your debugging session has been started, you
+can run the following command to split a window, run your target program (called 
+*debugee* in the example below) within it and capture the process with lldb:
+
+```
+:vsplit term://./debugee | exec(":LL process attach -p " . b:terminal_job_pid)
+```
+
+Then you can setup breakpoints, watchpoints… and start the execution with `:LL continue`.
+
+(don't forget to change `debugee` with your program name).
 
 #### Remote debugging does not work!!
 
