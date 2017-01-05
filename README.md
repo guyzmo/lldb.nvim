@@ -101,53 +101,42 @@ Try clang instead of gcc (fingers crossed). See [clang comparison](http://clang.
 
 #### How do I attach to a running process?
 
-To be able to attach, the lldb process needs to have a special capability called
-[*process capture*]. By default, this is limited only to children processes of the
-process doing the capture, which is the default way for `lldb` to work.
-But, there are three strategies to enable "capturing" of a non-child process 
-by `lldb`.
+To be able to attach a running process, the lldb process needs to have a
+special capability to enable usage of the [*ptrace*] system call. [For security
+reasons], this system call is restricted to the children processes of the
+process doing the capture, which is the default way that `lldb` (or any debugger) works.
 
-The first one is to disable `pcap` scoping by setting the following value to 0:
+But you can enable capturing of a running process by globally disabling scoping of
+the ptrace system call:
 
 ```
-echo 0 > /proc/sys/kernel/yama/ptrace_scope
+sysct -w kernel.yama.ptrace_scope=0
 ```
 
 But don't forget to set it back to `1` when you're done to keep your system safe.
 
-The second one is to give your `lldb` executable the rights to capture non-children
-processes by giving it a special capability (you'll need `libcap2-bin` installed):
+You'd have two other ways to attach to a running process, but because *lldb.vim*
+uses python bindings and not the `lldb` executable, those can only work with `lldb-server`.
+So please read [the following FAQ entry on how to run a remote server][remote-debug].
+
+Instead of disabling `ptrace` scoping globally, you can as well disable it just for
+the `lldb-server` executable (on debian, you'll need `libcap2-bin` installed):
 
 ```
-sudo setcap cap_sys_ptrace=eip /usr/bin/lldb
+sudo setcap cap_sys_ptrace=eip /usr/bin/lldb-server
 ```
 
-This cannot be reverted, so you can use user permissions to restrict the risk of
-getting lldb as a bounce to get your system hijacked.
-
-The third one is to run `lldb` as root. Because that would mean running your entire
-neovim session as root, this might not be a good idea. So then, you'd better run a
-debug server as root, and see below how to do so. 
-
-N.B.: the above tips apply to the `/usr/bin/lldb-server` executable as well, if you
-want to avoid running your debugger as root.
-
-[*process capture*]:http://askubuntu.com/a/153970/583565
-
-#### How to debug an interactive commandline process?
-
-You'll need to make it possible to capture a remote process with `lldb`, see the above
-answer for more details. And then, once your debugging session has been started, you
-can run the following command to split a window, run your target program (called 
-*debugee* in the example below) within it and capture the process with lldb:
+To revert the setting:
 
 ```
-:vsplit term://./debugee | exec(":LL process attach -p " . b:terminal_job_pid)
+sudo setcap -r /usr/bin/lldb-server
 ```
 
-Then you can setup breakpoints, watchpoints… and start the execution with `:LL continue`.
+Another way would be to run `lldb-server` as root, as bypassing `ptrace` scoping is
+amongst the root privileges.
 
-(don't forget to change `debugee` with your program name).
+[*ptrace*]:https://en.wikipedia.org/wiki/Ptrace
+[For security reasons]:http://askubuntu.com/a/153970/583565
 
 #### Remote debugging does not work!!
 
@@ -155,7 +144,7 @@ I haven't been able to get `gdbserver`, `lldb-gdbserver` or `lldb-server gdbserv
 to work properly with the python API. But the following works; run:
 
 ```
-# use sudo if you want to attach to a running process
+# use sudo if you want to attach to a running process or setcap
 $ lldb-server platform --listen localhost:2345
 
 # in older versions of lldb, use this instead
@@ -172,3 +161,62 @@ on port 2345. Now, from the client (the plugin), run:
 ```
 
 For more info on this, see [Remote Debugging](http://lldb.llvm.org/remote.html).
+
+#### How to debug an interactive commandline process?
+
+You'll need to make it possible to capture a remote process with `lldb`, see the above
+two answers for more details.
+
+If you choose to disable globally `ptrace` scoping, you can run the following command
+to open a new terminal buffer with your interactive command line program (once your
+debugging session is started):
+
+```
+:1wincmd w | vsplit | term ./debugee -args | exec(":LL process attach -p " . b:terminal_job_pid)
+```
+
+Then you can setup breakpoints, watchpoints… and start the execution with `:LL continue`.
+(don't forget to change `debugee` with your program name).
+
+If you prefer to use a debugging server instead, you can add the following viml function
+in your `vimrc`:
+
+```
+function! LLSpawn(target)
+  if !exists('g:lldb#remote_server')
+    if !system('pgrep "lldb-server"')
+        !lldb-server --listen localhost:42042&
+        # or
+        # !sudo lldb-server --listen localhost:42042&
+        sleep 1
+        echomsg 'lldb-server started...'
+    else
+        echoerr 'lldb-server already running!'
+    endif
+    LL platform select remote-linux
+    LL platform connect connect://localhost:42042
+    let g:lldb#remote_server = 1
+  endif
+  1wincmd w
+  vsplit
+  exe ":term ". a:target
+  exe ":LL process attach -p " . b:terminal_job_pid
+  2wincmd w
+endfunction
+```
+
+then once your debugging session has been started, you can run:
+
+```
+call LLSpawn('./debuggee --args')
+```
+
+which will start an `lldb-server` as suggested in the [former FAQ entry][remote-debug], start the
+*debuggee* process and attach it. If you choose to start the process as root, just
+prefix the `lldb-server` call with `sudo`, otherwise you need to disable `ptrace` 
+scoping in any way suggested [above][attach-process].
+
+[attach-process]:https://github.com/guyzmo/lldb.nvim/blob/patch-1/README.md#how-do-I-attach-to-a-running-process
+[remote-debug]:https://github.com/guyzmo/lldb.nvim/blob/patch-1/README.md#remote-debugging-does-not-work
+
+
