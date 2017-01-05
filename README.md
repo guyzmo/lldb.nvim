@@ -110,7 +110,7 @@ But you can enable capturing of a running process by globally disabling scoping 
 the ptrace system call:
 
 ```
-sysct -w kernel.yama.ptrace_scope=0
+sysctl -w kernel.yama.ptrace_scope=0
 ```
 
 But don't forget to set it back to `1` when you're done to keep your system safe.
@@ -120,7 +120,7 @@ uses python bindings and not the `lldb` executable, those can only work with `ll
 So please read [the following FAQ entry on how to run a remote server][remote-debug].
 
 Instead of disabling `ptrace` scoping globally, you can as well disable it just for
-the `lldb-server` executable (on debian, you'll need `libcap2-bin` installed):
+the `lldb-server` executable:
 
 ```
 sudo setcap cap_sys_ptrace=eip /usr/bin/lldb-server
@@ -171,7 +171,7 @@ If you choose to disable globally `ptrace` scoping, you can run the following co
 to open a new terminal buffer with your interactive command line program (once your
 debugging session is started):
 
-```
+``` viml
 :1wincmd w | vsplit | term ./debugee -args | exec(":LL process attach -p " . b:terminal_job_pid)
 ```
 
@@ -181,20 +181,21 @@ Then you can setup breakpoints, watchpoints… and start the execution with `:LL
 If you prefer to use a debugging server instead, you can add the following viml function
 in your `vimrc`:
 
-```
-function! LLSpawn(target)
+``` viml
+function! LLSpawn(target, ...)
+  let port = a:0 >= 2 ? a:1 : 2345
   if !exists('g:lldb#remote_server')
     if !system('pgrep "lldb-server"')
-        !lldb-server --listen localhost:42042&
+        exe ":!lldb-server --listen " . host . ":" . port&
         # or
-        # !sudo lldb-server --listen localhost:42042&
+        # exe ":!sudo lldb-server --listen " . host . ":" . port&
         sleep 1
         echomsg 'lldb-server started...'
     else
-        echoerr 'lldb-server already running!'
+        echomsg 'lldb-server already running...'
     endif
     LL platform select remote-linux
-    LL platform connect connect://localhost:42042
+    exe "LL platform connect connect://" . host . ":" . port
     let g:lldb#remote_server = 1
   endif
   1wincmd w
@@ -207,16 +208,17 @@ endfunction
 
 then once your debugging session has been started, you can run:
 
-```
-call LLSpawn('./debuggee --args')
+``` viml
+call LLSpawn('./debuggee --args') " or
+call LLSpawn('./debuggee --args', '4242')
 ```
 
-which will start an `lldb-server` as suggested in the [former FAQ entry][remote-debug], start the
-*debuggee* process and attach it. If you choose to start the process as root, just
+which will start an `lldb-server` as suggested in the [former FAQ entry][remote-debug],
+start the *debuggee* process and attach it, if no server is already runnning. If you choose to start the process as root, just
 prefix the `lldb-server` call with `sudo`, otherwise you need to disable `ptrace` 
 scoping in any way suggested [above][attach-process].
 
-[attach-process]:https://github.com/guyzmo/lldb.nvim/blob/patch-1/README.md#how-do-I-attach-to-a-running-process
-[remote-debug]:https://github.com/guyzmo/lldb.nvim/blob/patch-1/README.md#remote-debugging-does-not-work
+[attach-process]:#how-do-I-attach-to-a-running-process
+[remote-debug]:#remote-debugging-does-not-work
 
 
